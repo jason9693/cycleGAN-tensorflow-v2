@@ -8,7 +8,7 @@
 
 ## result
 
-1. day -> night -> day ( X-> G(X) -> F(G(X) )
+1. day -> night -> day (  X-> G(X) -> F( G(X) )  )
 
 ![](Result/download-3.png)
 
