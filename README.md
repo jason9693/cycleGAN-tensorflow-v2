@@ -43,6 +43,6 @@
 
 * https://colab.research.google.com/drive/1gzecEEw6Dqx3otpICxKDXmCnjkZJzhha#scrollTo=IkN9OuQCe8Hb
 
-## Licence
+## License
 
 Project is published under the MIT licence. Feel free to clone and modify repo as you want, but don'y forget to add reference to authors :)
