@@ -31,7 +31,9 @@ class DataIO:
     def __init__(self, dir_name):
         self.files = [dir_name + '/' + png for png in os.listdir(dir_name) if not os.path.isdir(dir_name + '/' + png)]
         self.idx = 0
-
+        self.cropped_data_stream = []
+        self.data_cache = None
+        self.shapes_cache = None
 
     def count_files(self):
         return len(self.files)
@@ -47,6 +49,15 @@ class DataIO:
             shapes.append(shape)
 
         return (datas, shapes)
+
+    # def get_cached_data_batch(self, resizing = None):
+    #     idx = self.idx
+    #
+    #     self.data_cache, self.shapes_cache = self.get_shuffle_cropped_data_batch(10,resizing)
+    #     self.idx = idx + 1
+
+
+
 
     def get_shuffle_cropped_data_batch(self, batch_size, resizing=None):
         datas = []

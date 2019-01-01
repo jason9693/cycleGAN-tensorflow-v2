@@ -49,11 +49,14 @@ class cycleGAN(GANv2):
         LcycG = tf.reduce_mean(tf.math.abs(self.X2Y2X - self.X)) * self.lambdas
         LcycF = tf.reduce_mean(tf.math.abs(self.Y2X2Y - self.Y)) * self.lambdas
 
+        LidentityX = tf.reduce_mean(tf.math.abs(self.X - self.X2Y))
+        LidentityY = tf.reduce_mean(tf.math.abs(self.Y - self.Y2X))
+
         self.LDy = LganG# + LcycG
-        self.LGy = LyAdv + LcycG
+        self.LGy = LyAdv + LcycG + LidentityX
 
         self.LDx = LganF# + LcycF
-        self.LGx = LxAdv + LcycF
+        self.LGx = LxAdv + LcycF + LidentityY
 
         self.TotalDLoss = self.LDy + self.LDx
         self.TotalGLoss = self.LGy + self.LGx
@@ -65,12 +68,12 @@ class cycleGAN(GANv2):
         F_vars = self.F.trainable_variables
 
         self.DyOptim = \
-            tf.train.AdamOptimizer(learning_rate=self.dynamic_l_r).minimize(self.LDy, var_list=Dy_vars + Dx_vars)
+            tf.train.RMSPropOptimizer(learning_rate=self.dynamic_l_r).minimize(self.LDy, var_list=Dy_vars + Dx_vars)
         # self.GyOptim = \
         #     tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.LGy, var_list=G_vars)
 
         self.DxOptim = \
-            tf.train.AdamOptimizer(learning_rate=self.dynamic_l_r).minimize(self.LDx, var_list=Dx_vars + Dy_vars)
+            tf.train.RMSPropOptimizer(learning_rate=self.dynamic_l_r).minimize(self.LDx, var_list=Dx_vars + Dy_vars)
         # self.GxOptim = \
         #     tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.LGx, var_list=F_vars)
         self.G_optim = \
@@ -151,7 +154,7 @@ class cycleGAN(GANv2):
         c512 = tf.keras.layers.LeakyReLU()(c512)
 
         last_layer = tf.keras.layers.Dense(1, activation=None)(c512)
-        last_layer = tf.keras.layers.Flatten()(last_layer)
+        last_layer = tf.keras.layers.Flatten(name=name)(last_layer)
 
         #las_conv = tf.keras.layers.Conv2D(1, (4,4), strides=1, padding='same')
 
@@ -193,13 +196,6 @@ class cycleGAN(GANv2):
             )
 
             for i in range(2):
-                # _, Gloss = self.sess.run(
-                #     [self.GyOptim, self.LGy], feed_dict={self.X:x, self.lambdas: 0.1, self.Y:y}
-                # )
-                # # loss_dict = {'X':[Dloss,Gloss]}
-                # _, Gloss = self.sess.run(
-                #     [self.GxOptim, self.LGx], feed_dict={self.Y: y, self.lambdas: 0.1, self.X:x}
-                # )
                 _,Gloss = self.sess.run(
                     [self.G_optim, self.TotalGLoss],
                     feed_dict={
@@ -232,3 +228,144 @@ class cycleGAN(GANv2):
 
     def infer(self, z, y=None, path=None):
         pass
+
+
+class Mobile(cycleGAN):
+    def __build_net__(self):
+        self.X = tf.placeholder(shape=[None] + self.input_shape, dtype=tf.float32, name='X')
+        self.Y = tf.placeholder(shape=[None] + self.input_shape, dtype=tf.float32, name='Y')
+        self.lambdas = tf.placeholder(shape=(), dtype=tf.float32, name='lambda')
+        self.dynamic_l_r = tf.placeholder(shape=(), dtype=tf.float32, name='d_l_r')
+        self.dropout = 0.0#tf.placeholder(shape=(), dtype=tf.float32, name='dropout')
+
+        self.G = self.Generator(self.input_shape, self.input_shape, name='G')
+        self.F = self.Generator(self.input_shape, self.input_shape, name='F')
+        self.Dy = self.Discriminator(self.input_shape, 1, name='Dy')
+        self.Dx = self.Discriminator(self.input_shape, 1, name='Dx')
+
+        self.X2Y = self.G(self.X)
+        self.Y2X = self.F(self.Y)
+
+        self.X2Y2X = self.F(self.X2Y)
+        self.Y2X2Y = self.G(self.Y2X)
+
+        self.realDy = self.Dy(self.Y)
+        self.fakeDy = self.Dy(self.X2Y)
+
+        self.realDx = self.Dx(self.X)
+        self.fakeDx = self.Dx(self.Y2X)
+
+        self.__set_loss_and_optim__()
+
+    def train(self, x= None, z=None, y=None): #z: l_r decay
+            x=np.array(x)
+            y=np.array(y)
+            x=processing.preprocess_image(x)
+            y=processing.preprocess_image(y)
+
+            lambdas = 10
+            # dropout = 0.5
+
+            if z is not None:
+                self.learning_rate -= z
+
+            _, Dloss = self.sess.run(
+                [self.DyOptim, self.LDy],
+                feed_dict={
+                    self.X:x,
+                    self.lambdas: lambdas,
+                    self.Y:y,
+                    self.dynamic_l_r: self.learning_rate,
+                    #self.dropout: dropout
+                }
+            )
+            _, Dloss = self.sess.run(
+                [self.DxOptim, self.LDx],
+                feed_dict={
+                    self.Y: y,
+                    self.lambdas: lambdas,
+                    self.X: x,
+                    self.dynamic_l_r: self.learning_rate,
+                    #self.dropout: dropout
+                }
+            )
+
+            for i in range(2):
+                _, Gloss = self.sess.run(
+                    [self.G_optim, self.TotalGLoss],
+                    feed_dict={
+                        self.X:x,
+                        self.lambdas: lambdas,
+                        self.Y:y,
+                        self.dynamic_l_r: self.learning_rate,
+                        #self.dropout: dropout
+                    }
+                )
+            # loss_dict['Y'] = [Dloss,Gloss]
+            Dloss, Gloss = self.sess.run(
+                [self.TotalDLoss, self.TotalGLoss],
+                feed_dict={self.Y: y, self.lambdas: lambdas, self.X:x}
+            )
+            return (Dloss,Gloss)
+
+    def Generator(self,z_shape, output_dim, name= 'generator'):
+        #z must be 4D-Tensor
+        z = tf.keras.Input(shape=z_shape)
+        c7s1_32 = tf.keras.layers.ZeroPadding2D((3,3))(z)
+        c7s1_32 = tf.keras.layers.Conv2D(32, (7,7), (1,1) ,activation=tf.nn.relu)(c7s1_32)
+
+        d64 = tf.keras.layers.Conv2D(64,  (3,3), (2,2), padding='same')(c7s1_32)
+        d64 = tf.keras.layers.BatchNormalization()(d64)
+        d64 = tf.keras.layers.ReLU()(d64)
+
+        d128 = tf.keras.layers.Conv2D(128, (3,3), (2,2), padding='same')(d64)
+        d128 = tf.keras.layers.BatchNormalization()(d128)
+        d128 = tf.keras.layers.Dropout(self.dropout)(d128)
+        d128 = tf.keras.layers.ReLU()(d128)
+
+        r128 = tf.keras.layers.Conv2D(128, (3,3), (1,1), padding='same')(d128)
+        r128 = tf.keras.layers.BatchNormalization()(r128)
+        r128 = tf.keras.layers.Dropout(self.dropout)(r128)
+        r128 = tf.keras.layers.ReLU()(r128)
+        r128 = tf.keras.layers.Conv2D(128, (3,3), (1,1), padding='same')(r128)
+        r128 = tf.keras.layers.BatchNormalization()(r128)
+        tf.keras.layers.Dropout(self.dropout)(r128)
+        r128 = tf.keras.layers.Add()([r128, d128])
+
+        for i in range(8):
+            r128_tmp = tf.keras.layers.Conv2D(128, (3,3), (1,1), padding='same')(r128)
+            r128_tmp = tf.keras.layers.BatchNormalization()(r128_tmp)
+            r128_tmp = tf.keras.layers.Dropout(self.dropout)(r128_tmp)
+            r128_tmp = tf.keras.layers.ReLU()(r128_tmp)
+            r128_tmp = tf.keras.layers.Conv2D(128, (3,3), (1,1), padding='same')(r128_tmp)
+            r128_tmp = tf.keras.layers.BatchNormalization()(r128_tmp)
+            r128_tmp = tf.keras.layers.Dropout(self.dropout)(r128_tmp)
+            r128 = tf.keras.layers.Add()([r128, r128_tmp])
+
+        u64 = tf.keras.layers.Conv2DTranspose(64, (3,3), (2,2), padding='same')(r128)
+        u64 = tf.keras.layers.BatchNormalization()(u64)
+        u64 = tf.keras.layers.Dropout(self.dropout)(u64)
+        u64 = tf.keras.layers.ReLU()(u64)
+
+        u32 = tf.keras.layers.Conv2DTranspose(32, (3,3), (2,2), padding='same')(u64)
+        u32 = tf.keras.layers.BatchNormalization()(u32)
+        u32 = tf.keras.layers.Dropout(self.dropout)(u32)
+        u32 = tf.keras.layers.ReLU()(u32)
+
+        u32 = tf.keras.layers.ZeroPadding2D((3,3))(u32)
+        c7s1_3 = tf.keras.layers.Conv2D(3, (7,7), (1,1), name=name, activation=tf.nn.tanh)(u32)
+        #
+        # c7s1_3 = tf.keras.layers.Flatten()(c7s1_3)
+        # c7s1_3 = tf.keras.layers.Dense(10, name=name, activation=tf.nn.tanh)(c7s1_3)
+        G = tf.keras.Model(z, c7s1_3)
+        return G
+
+    def generateImg(self, x):
+        x = np.array(x)
+        x = processing.preprocess_image(x)
+        return processing.deprocess_image(self.sess.run(self.X2Y, feed_dict={self.X: x})[0])
+
+    def reverseGenerateImg(self, y):
+        y =np.array(y)
+        y = processing.preprocess_image(y)
+        return processing.deprocess_image(self.sess.run(self.Y2X, feed_dict={self.Y: y})[0])

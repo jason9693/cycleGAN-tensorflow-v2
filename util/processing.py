@@ -1,7 +1,8 @@
 import tensorflow as tf
 from matplotlib import pyplot as plt
 import matplotlib.gridspec as gridspec
-from skimage.io import imread
+#from skimage.io import imread
+from scipy.misc import imread
 from skimage.transform import resize as imresize
 import numpy as np
 
@@ -38,7 +39,7 @@ def load_image(filename, size=None, meta=False):
     - filename: path to file
     - size: size of shortest dimension after rescaling
     """
-    img = imread(filename) / 255
+    img = imread(filename, mode='RGB') / 255
     if size is not None:
         orig_shape = np.array(img.shape[:2])
         min_idx = np.argmin(orig_shape)
